@@ -14,14 +14,14 @@ export const GRAVITY = 9.81;
 /** Lattice inflow speed. Mach number is about 0.1, low enough for near-incompressible flow. */
 export const LATTICE_SPEED = 0.06;
 /** Smallest lattice viscosity the solver is run at. Caps the simulated Reynolds number. */
-export const MIN_LATTICE_VISCOSITY = 1e-5;
-/** Flow-throughs of the model length that are discarded before averaging starts. */
+export const MIN_LATTICE_VISCOSITY = 3e-4;
+/** Passes of air over the model's length that are discarded before averaging starts. */
 export const WARMUP_FLOW_THROUGHS = 5;
 /** Flow-throughs of averaging after which the measurement counts as settled. */
 export const SETTLE_FLOW_THROUGHS = 8;
 
 export interface TunnelSetup {
-  /** Streamwise model length in cells. */
+  /** Characteristic model length in cells: its longest side as placed in the tunnel. */
   lengthCells: number;
   frontalCells: number;
   blockage: number;

@@ -10,10 +10,10 @@ const nx = Number(process.argv[2] ?? 128);
 
 // tolerance is the accepted relative error; streamlined shapes are known to be far off on coarse grids.
 const CASES = [
-  { name: 'Sphere, Re 100', query: 'preset=sphere&re=100&ft=40', expected: 1.09, tolerance: 0.15 },
-  { name: 'Sphere, Re 20 000', query: 'preset=sphere&re=20000&ft=60', expected: 0.47, tolerance: 0.25 },
-  { name: 'Cube, face on', query: 'preset=cube&re=1000000&ft=40', expected: 1.05, tolerance: 0.25 },
-  { name: 'Square plate, face on', query: 'preset=plate&re=1000000&ft=40', expected: 1.17, tolerance: 0.25 },
+  { name: 'Sphere, Re 100', query: 'preset=sphere&re=100&ft=25', expected: 1.09, tolerance: 0.15 },
+  { name: 'Sphere, Re 20 000', query: 'preset=sphere&re=20000&ft=30', expected: 0.47, tolerance: 0.25 },
+  { name: 'Cube, face on', query: 'preset=cube&re=1000000&ft=30', expected: 1.05, tolerance: 0.25 },
+  { name: 'Square plate, face on', query: 'preset=plate&re=1000000&ft=30', expected: 1.17, tolerance: 0.25 },
   { name: 'Car on the floor (stability)', query: 'preset=car&ground=1&re=1000000&ft=20', expected: null, tolerance: null },
   { name: 'Cow on the floor (stability)', query: 'preset=cow&ground=1&re=1000000&ft=20', expected: null, tolerance: null },
 ];

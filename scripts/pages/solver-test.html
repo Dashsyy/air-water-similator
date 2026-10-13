@@ -26,8 +26,8 @@ try {
   if (shrink !== 1) for (let i = 0; i < tris.length; i++) tris[i] = centre[i % 3] + (tris[i] - centre[i % 3]) * shrink;
   const grid = voxelize(tris, nx, ny, nz);
   if (q.get('ground') === '1') addFloor(grid);
-  const L = grid.extent[0];
-  const nu = (u0 * L) / re;
+  const L = Math.max(...grid.extent);
+  const nu = Math.max((u0 * L) / re, +(q.get('numin') ?? 3e-4));
   const tau = 3 * nu + 0.5;
   const lbm = new Lbm3D(device, nx, ny, nz);
   lbm.setFlow(u0, tau);
@@ -36,7 +36,8 @@ try {
   lbm.reset();
   const samples = [];
   lbm.onForce = (s) => samples.push(s);
-  const total = Math.round((flowThroughs * L) / u0);
+  const ramp = lbm.rampSteps;
+  const total = ramp + Math.round((flowThroughs * L) / u0);
   const t0 = performance.now();
   let done = 0;
   while (done < total) {
@@ -49,7 +50,7 @@ try {
   const secs = (performance.now() - t0) / 1000;
   const q0 = 0.5 * u0 * u0 * grid.frontalCells;
   const coeff = (from, to, a) => {
-    const sel = samples.filter((s) => s.atStep > from * total && s.atStep <= to * total);
+    const sel = samples.filter((s) => s.atStep > ramp + from * (total - ramp) && s.atStep <= ramp + to * (total - ramp));
     const n = sel.reduce((acc, s) => acc + s.steps, 0);
     return sel.reduce((acc, s) => acc + s.force[a] * s.steps, 0) / n / q0;
   };

@@ -77,7 +77,7 @@ export class Simulation {
     smokeDensity: 0.4,
     pressureMap: true,
     vortices: false,
-    vortexThreshold: 0.6,
+    vortexThreshold: 1.2,
     slice: false,
     sliceAxis: 'z',
     slicePosition: 0.5,
@@ -271,7 +271,7 @@ export class Simulation {
     this.grid = voxelize(transformedTriangles(this.model, this.placement.matrix), nx, ny, nz);
     if (this.orientation.onGround) addFloor(this.grid);
     this.lbm.setSolid(this.grid.flags, this.grid.distance);
-    this.fields.setReferenceLength(this.grid.extent[0]);
+    this.fields.setReferenceLength(this.referenceLength());
     this.applyFlow();
     if (resetFlow) {
       this.lbm.reset();
@@ -282,9 +282,10 @@ export class Simulation {
 
   private restartMeasurement(): void {
     if (!this.grid) return;
+    // Measuring starts once the wind has finished easing in.
     this.recorder = new ForceRecorder(
-      { lengthCells: this.grid.extent[0], frontalCells: this.grid.frontalCells, blockage: this.grid.blockage },
-      this.lbm.totalSteps,
+      { lengthCells: this.referenceLength(), frontalCells: this.grid.frontalCells, blockage: this.grid.blockage },
+      Math.max(this.lbm.totalSteps, this.lbm.rampSteps),
     );
   }
 
@@ -322,7 +323,7 @@ export class Simulation {
     const grid = this.grid!;
     const placement = this.placement!;
     return {
-      lengthCells: grid.extent[0],
+      lengthCells: this.referenceLength(),
       frontalCells: grid.frontalCells,
       blockage: grid.blockage,
       // The model's longest side spans `placement.scale` cells and `realSize` metres.
@@ -330,6 +331,11 @@ export class Simulation {
       windSpeed: this.conditions.windKmh / 3.6,
       massKg: this.conditions.massKg,
     };
+  }
+
+  /** Characteristic length in cells: the model's longest side as placed in the tunnel. */
+  private referenceLength(): number {
+    return Math.max(...(this.grid?.extent ?? [1]), 1);
   }
 
   private flow(): FlowNumbers {

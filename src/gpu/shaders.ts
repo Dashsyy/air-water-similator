@@ -80,15 +80,18 @@ fn fs(in: VOut) -> @location(0) vec4<f32> {
   var base = in.color;
   var shine = 0.25;
   if (S.mesh.x > 0.5) {
-    // Five taps just above the surface smooth out the cell-to-cell ripple of a voxelised wall.
+    // Nine taps just above the surface smooth out the cell-to-cell ripple of a voxelised wall.
     let t1 = normalize(cross(face, select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(face.y) > 0.9)));
     let t2 = cross(face, t1);
-    let c = in.world + face * 1.4;
-    let rho1 = (textureSampleLevel(macroTex, samp, c / S.dims.xyz, 0.0).w * 2.0
-      + textureSampleLevel(macroTex, samp, (c + t1) / S.dims.xyz, 0.0).w
-      + textureSampleLevel(macroTex, samp, (c - t1) / S.dims.xyz, 0.0).w
-      + textureSampleLevel(macroTex, samp, (c + t2) / S.dims.xyz, 0.0).w
-      + textureSampleLevel(macroTex, samp, (c - t2) / S.dims.xyz, 0.0).w) / 6.0;
+    let c = in.world + face * 1.5;
+    var rho1 = textureSampleLevel(macroTex, samp, c / S.dims.xyz, 0.0).w * 2.0;
+    for (var i = 0; i < 8; i++) {
+      let angle = f32(i) * 0.78539816;
+      let reach = select(1.4, 2.4, i % 2 == 1);
+      let tap = c + (t1 * cos(angle) + t2 * sin(angle)) * reach;
+      rho1 += textureSampleLevel(macroTex, samp, tap / S.dims.xyz, 0.0).w;
+    }
+    rho1 /= 10.0;
     let cp = pressureCoefficient(rho1);
     base = diverging(cp / S.mesh.y);
     shine = 0.08;

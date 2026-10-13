@@ -35,7 +35,11 @@ function fatal(title: string, detail: string): void {
   box.append(inner);
 }
 
-const fmt = (v: number, digits = 2): string => (Number.isFinite(v) ? v.toFixed(digits) : '–');
+const fmt = (v: number, digits = 2): string => {
+  if (!Number.isFinite(v)) return '–';
+  const text = v.toFixed(digits);
+  return Number(text) === 0 ? (0).toFixed(digits) : text;
+};
 
 /** CSS gradient matching the shader's turbo colour map. */
 function turboGradient(): string {

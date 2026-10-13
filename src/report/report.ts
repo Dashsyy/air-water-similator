@@ -42,6 +42,12 @@ function num(value: number, digits = 3): string {
 
 const kmh = (metresPerSecond: number): number => metresPerSecond * 3.6;
 
+/** Rounded, compact form for very large values such as Reynolds numbers: 8.4 million, 11 thousand. */
+function big(value: number): string {
+  if (!Number.isFinite(value)) return 'n/a';
+  return new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'long', maximumSignificantDigits: 2 }).format(value);
+}
+
 function powerPhrase(watts: number): string {
   const w = Math.abs(watts);
   if (w < 1) return `${num(w * 1000)} milliwatts, less than a small LED uses`;
@@ -276,8 +282,8 @@ export function buildReport(input: ReportInput): BuiltReport {
   }
 
   const reynoldsNote = flow.simulatedReynolds < flow.realReynolds * 0.98
-    ? `The real flow has a Reynolds number near ${num(flow.realReynolds, 2)}. The grid can only resolve about ${num(flow.simulatedReynolds, 2)}, so the simulated air is effectively stickier than real air.`
-    : `The simulation ran at the real Reynolds number of about ${num(flow.realReynolds, 2)}.`;
+    ? `The real flow has a Reynolds number near ${big(flow.realReynolds)}. The grid can only resolve about ${big(flow.simulatedReynolds)}, so the simulated air is effectively stickier than real air.`
+    : `The simulation ran at the real Reynolds number of about ${big(flow.realReynolds)}.`;
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -316,14 +322,14 @@ ${row('Lift coefficient, Cl', num(m.cl), 'based on frontal area')}
 ${row('Side-force coefficient', num(m.cs))}
 ${row('Lift-to-drag ratio', num(m.liftToDrag))}
 ${row('Frontal area', `${num(rw.frontalAreaM2)} m²`, 'silhouette seen by the wind')}
-${row('Length along the wind', `${num(rw.lengthM)} m`)}
+${row('Longest side', `${num(rw.lengthM)} m`, 'used for the Reynolds number')}
 ${row('Wind speed', `${num(wind)} km/h`, `${num(wind / 3.6)} m/s`)}
 ${row('Drag force', `${num(rw.dragN)} N`)}
 ${row('Lift force', `${num(rw.liftN)} N`, `weight is ${num(rw.weightN)} N`)}
 ${row('Power to overcome drag', `${num(rw.powerW)} W`)}
 ${row('Terminal velocity', rw.terminalSpeed === null ? 'n/a' : `${num(kmh(rw.terminalSpeed))} km/h`, `for a mass of ${num(input.conditions.massKg)} kg`)}
-${row('Reynolds number, real', num(flow.realReynolds, 2))}
-${row('Reynolds number, simulated', num(flow.simulatedReynolds, 2))}
+${row('Reynolds number, real', big(flow.realReynolds))}
+${row('Reynolds number, simulated', big(flow.simulatedReynolds))}
 ${row('Orientation', `yaw ${num(o.yaw)}°, pitch ${num(o.pitch)}°, roll ${num(o.roll)}°`, o.onGround ? 'resting on a fixed floor' : 'floating in mid-stream')}
 ${row('Grid', `${grid.nx} × ${grid.ny} × ${grid.nz}`, `${esc(tier.label)} quality, ${num(grid.solidCells)} solid cells`)}
 ${row('Tunnel blockage', `${num(grid.blockage * 100, 2)}%`, 'corrected for in the coefficients')}

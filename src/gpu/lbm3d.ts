@@ -3,8 +3,8 @@
  *
  * - Pull streaming with interpolated (Bouzidi) bounce-back on the model, which places the wall at
  *   its true sub-cell position, and halfway bounce-back on tunnel walls.
- * - Regularised BGK collision with a Smagorinsky sub-grid model, for stability and low noise at
- *   high Reynolds numbers.
+ * - BGK collision with a Smagorinsky sub-grid model for stability at high Reynolds numbers.
+ * - The wind is eased in from rest, which keeps start-up pressure waves and grid-scale ripples small.
  * - Populations are stored shifted by their lattice weight (f - w) to keep float32 precision.
  * - Aerodynamic force on the solid comes from the momentum exchange method and is
  *   accumulated on the GPU in fixed point, then read back asynchronously.
@@ -215,21 +215,13 @@ fn step(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
   let stress = sqrt(sxx * sxx + syy * syy + szz * szz + 2.0 * (sxy * sxy + sxz * sxz + syz * syz));
   let tau0 = P.flow.y;
-  // 0.76421222 = 18 * sqrt(2) * Cs^2 with Cs = 0.173
   // Plain Smagorinsky overestimates eddy viscosity in the first cell off a wall, which shows up as
   // far too much skin friction. Damp it there.
   let eddy = select(1.0, P.tune.x, nearWall);
   let omega = 2.0 / (tau0 + sqrt(tau0 * tau0 + 0.76421222 * eddy * stress / rho));
 
-  // Regularised collision: rebuild the non-equilibrium part from its stress tensor alone. This drops
-  // the non-hydrodynamic modes that otherwise show up as checkerboard pressure noise at low viscosity.
-  let keep = 1.0 - omega;
   for (var q = 0u; q < 19u; q++) {
-    let c = vec3<f32>(C[q]);
-    let neq = 4.5 * W[q] * (
-      (c.x * c.x - 1.0 / 3.0) * sxx + (c.y * c.y - 1.0 / 3.0) * syy + (c.z * c.z - 1.0 / 3.0) * szz
-      + 2.0 * (c.x * c.y * sxy + c.x * c.z * sxz + c.y * c.z * syz));
-    dst[q * n + idx] = feq[q] + keep * neq;
+    dst[q * n + idx] = f[q] + omega * (feq[q] - f[q]);
   }
   textureStore(macroTex, p, vec4<f32>(u, rho1));
 
@@ -281,6 +273,9 @@ export class Lbm3D {
   private tau = 0.51;
   private interpolatedWalls = false;
   private wallEddyFactor = 0.15;
+  /** Steps over which the wind is eased in after a reset. */
+  readonly rampSteps: number;
+  private rampDone = false;
 
   constructor(device: GPUDevice, nx: number, ny: number, nz: number) {
     this.device = device;
@@ -288,6 +283,7 @@ export class Lbm3D {
     this.ny = ny;
     this.nz = nz;
     this.cells = nx * ny * nz;
+    this.rampSteps = Math.round((0.5 * nx) / this.u0);
 
     const popBytes = this.cells * 19 * 4;
     const makePops = (): GPUBuffer => device.createBuffer({ size: popBytes, usage: GPUBufferUsage.STORAGE });
@@ -364,7 +360,7 @@ export class Lbm3D {
     this.writeUniform();
   }
 
-  /** Lattice inflow speed and BGK relaxation time. */
+  /** Lattice inflow speed and BGK relaxation time. Call before reset() when changing the speed. */
   setFlow(u0: number, tau: number): void {
     this.u0 = u0;
     this.tau = tau;
@@ -405,6 +401,9 @@ export class Lbm3D {
 
   /** Restart the flow from a uniform free stream. */
   reset(): void {
+    this.totalSteps = 0;
+    this.rampDone = false;
+    this.writeUniform();
     const encoder = this.device.createCommandEncoder();
     // Initialise both buffers so either can act as the source.
     for (const group of this.bindGroups) {
@@ -416,13 +415,16 @@ export class Lbm3D {
     }
     this.device.queue.submit([encoder.finish()]);
     this.current = 0;
-    this.totalSteps = 0;
     this.discardForce();
   }
 
   /** Advance the flow by `steps` time steps. */
   advance(steps: number): void {
     if (this.destroyed || steps <= 0) return;
+    if (!this.rampDone) {
+      this.rampDone = this.totalSteps >= this.rampSteps;
+      this.writeUniform();
+    }
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass();
     pass.setPipeline(this.stepPipeline);
@@ -482,6 +484,15 @@ export class Lbm3D {
     this.device.queue.submit([encoder.finish()]);
   }
 
+  /**
+   * The wind is eased in from rest after a reset. An impulsive start would fill the tunnel with
+   * pressure waves and grid-scale ripples that take a long time to die out.
+   */
+  private rampFactor(): number {
+    const t = Math.min(1, this.totalSteps / this.rampSteps);
+    return 0.5 - 0.5 * Math.cos(Math.PI * t);
+  }
+
   private workgroups(): [number, number, number] {
     return [Math.ceil(this.nx / 4), Math.ceil(this.ny / 4), Math.ceil(this.nz / 4)];
   }
@@ -490,7 +501,12 @@ export class Lbm3D {
     const data = new ArrayBuffer(48);
     new Float32Array(data, 32, 4).set([this.wallEddyFactor, 0, 0, 0]);
     new Uint32Array(data, 0, 4).set([this.nx, this.ny, this.nz, this.cells]);
-    new Float32Array(data, 16, 4).set([this.u0, this.tau, FORCE_SCALE, this.interpolatedWalls ? 1 : 0]);
+    new Float32Array(data, 16, 4).set([
+      this.u0 * this.rampFactor(),
+      this.tau,
+      FORCE_SCALE,
+      this.interpolatedWalls ? 1 : 0,
+    ]);
     this.device.queue.writeBuffer(this.uniform, 0, data);
   }
 }

@@ -133,6 +133,9 @@ fn derive(@builtin(global_invocation_id) gid: vec3<u32>) {
     q = -0.5 * (dx.x * dx.x + dy.y * dy.y + dz.z * dz.z) - (dy.x * dx.y + dz.x * dx.z + dz.y * dy.z);
     let curl = vec3<f32>(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x);
     w = length(curl);
+    // The thin layer on the tunnel floor and faces is pure shear plus grid noise, not vortices.
+    let edge = min(min(min(gid.x, dims.x - 1u - gid.x), min(gid.y, dims.y - 1u - gid.y)), min(gid.z, dims.z - 1u - gid.z));
+    q *= smoothstep(3.0, 9.0, f32(edge));
   }
   textureStore(vortDst, p, vec4<f32>(q * F.aux.x, w * F.aux.y, length(u) / F.dims.w, 0.0));
 }
