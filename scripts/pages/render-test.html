@@ -1,0 +1,37 @@
+<!doctype html>
+<html><body style="margin:0;background:#000">
+<canvas id="c" style="width:1280px;height:720px;display:block"></canvas>
+<script type="module">
+import { initGpu } from '/src/gpu/device.ts';
+import { Simulation, QUALITY_TIERS } from '/src/app/simulation.ts';
+import { PRESETS } from '/src/geometry/presets.ts';
+
+const q = new URLSearchParams(location.search);
+try {
+  const gpu = await initGpu();
+  const errors = [];
+  gpu.device.addEventListener('uncapturederror', (e) => { if (errors.length < 5) errors.push(e.error.message); });
+  const sim = new Simulation(gpu, document.getElementById('c'));
+  sim.setQuality(QUALITY_TIERS.find((t) => t.id === (q.get('tier') ?? 'medium')));
+  const preset = PRESETS.find((p) => p.id === (q.get('preset') ?? 'car'));
+  sim.setModel(preset.build(), { pitch: preset.pitch ?? 0 });
+  sim.setConditions({ windKmh: +(q.get('wind') ?? 100) });
+  for (const [k, v] of q) if (k.startsWith('v.')) sim.view[k.slice(2)] = v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v;
+  if (q.get('rake')) sim.setRake(JSON.parse(q.get('rake')));
+  if (q.get('az')) sim.camera.azimuth = +q.get('az');
+  if (q.get('el')) sim.camera.elevation = +q.get('el');
+  if (q.get('dist')) sim.camera.distance *= +q.get('dist');
+  const frames = +(q.get('frames') ?? 300);
+  let t = 0;
+  for (let i = 0; i < frames; i++) {
+    sim.frame(t + 16.7, t);
+    t += 16.7;
+    if (i % 8 === 0) await gpu.device.queue.onSubmittedWorkDone();
+  }
+  await gpu.device.queue.onSubmittedWorkDone();
+  await new Promise((r) => setTimeout(r, 300));
+  const snap = sim.snapshot();
+  window.__image = sim.capture();
+  window.__result = { errors, m: snap.measurement, flow: snap.flow, steps: snap.totalSteps, frontal: snap.grid.frontalCells, extent: snap.grid.extent };
+} catch (e) { window.__error = String(e?.stack ?? e); }
+</script></body></html>

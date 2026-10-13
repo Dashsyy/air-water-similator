@@ -1,0 +1,67 @@
+<!doctype html>
+<html><body><pre id="log"></pre>
+<script type="module">
+import { initGpu } from '/src/gpu/device.ts';
+import { Lbm3D } from '/src/gpu/lbm3d.ts';
+import { PRESETS } from '/src/geometry/presets.ts';
+import { placeModel, transformedTriangles } from '/src/geometry/model.ts';
+import { voxelize, addFloor } from '/src/geometry/voxelize.ts';
+
+const q = new URLSearchParams(location.search);
+const nx = +(q.get('nx') ?? 128), ny = nx / 2, nz = nx / 2;
+const presetId = q.get('preset') ?? 'sphere';
+const re = +(q.get('re') ?? 20000);
+const u0 = +(q.get('u') ?? 0.06);
+const flowThroughs = +(q.get('ft') ?? 12);
+const log = (s) => { document.getElementById('log').textContent += s + '\n'; };
+try {
+  const { device } = await initGpu();
+  device.addEventListener('uncapturederror', (e) => { window.__error = e.error.message; log('GPU ERROR ' + e.error.message); });
+  const preset = PRESETS.find((p) => p.id === presetId);
+  const model = preset.build();
+  const place = placeModel(model, { yaw: +(q.get('yaw') ?? 0), pitch: +(q.get('pitch') ?? preset.pitch ?? 0), roll: 0, onGround: q.get('ground') === '1' }, nx, ny, nz);
+  const tris = transformedTriangles(model, place.matrix);
+  const shrink = +(q.get('shrink') ?? 1);
+  const centre = [0.36 * nx, ny / 2, nz / 2];
+  if (shrink !== 1) for (let i = 0; i < tris.length; i++) tris[i] = centre[i % 3] + (tris[i] - centre[i % 3]) * shrink;
+  const grid = voxelize(tris, nx, ny, nz);
+  if (q.get('ground') === '1') addFloor(grid);
+  const L = grid.extent[0];
+  const nu = (u0 * L) / re;
+  const tau = 3 * nu + 0.5;
+  const lbm = new Lbm3D(device, nx, ny, nz);
+  lbm.setFlow(u0, tau);
+  if (q.get('wd')) lbm.setWallEddyFactor(+q.get('wd'));
+  lbm.setSolid(grid.flags, q.get('ibb') === '0' ? undefined : grid.distance);
+  lbm.reset();
+  const samples = [];
+  lbm.onForce = (s) => samples.push(s);
+  const total = Math.round((flowThroughs * L) / u0);
+  const t0 = performance.now();
+  let done = 0;
+  while (done < total) {
+    lbm.advance(16);
+    done += 16;
+    if (done % 320 === 0) await device.queue.onSubmittedWorkDone();
+  }
+  await device.queue.onSubmittedWorkDone();
+  await new Promise((r) => setTimeout(r, 200));
+  const secs = (performance.now() - t0) / 1000;
+  const q0 = 0.5 * u0 * u0 * grid.frontalCells;
+  const coeff = (from, to, a) => {
+    const sel = samples.filter((s) => s.atStep > from * total && s.atStep <= to * total);
+    const n = sel.reduce((acc, s) => acc + s.steps, 0);
+    return sel.reduce((acc, s) => acc + s.force[a] * s.steps, 0) / n / q0;
+  };
+  const result = {
+    preset: presetId, nx, re, tau, L, frontal: grid.frontalCells, blockage: grid.blockage, steps: total,
+    mlups: (total * nx * ny * nz) / secs / 1e6,
+    cdEarly: coeff(0.2, 0.5, 0), cd: coeff(0.5, 1, 0), cl: coeff(0.5, 1, 1), cs: coeff(0.5, 1, 2),
+    nan: samples.some((s) => s.force.some((v) => !Number.isFinite(v))),
+    blewUp: samples.slice(-3).every((s) => s.force.every((v) => v === 0)),
+    samples: samples.length,
+  };
+  log(JSON.stringify(result, null, 1));
+  window.__result = result;
+} catch (e) { window.__error = String(e?.stack ?? e); log(window.__error); }
+</script></body></html>

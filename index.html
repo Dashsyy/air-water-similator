@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Virtual Wind Tunnel</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌬️</text></svg>" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <header>
+          <h1>Virtual Wind Tunnel</h1>
+          <p class="sub">Drop in any 3D model and watch the air go around it.</p>
+        </header>
+
+        <section>
+          <h2>Object</h2>
+          <div id="presets" class="preset-grid"></div>
+          <label class="file-button">
+            <input id="file" type="file" accept=".glb,.gltf,.obj,.stl,.ply,.fbx" hidden />
+            Import a 3D model…
+          </label>
+          <p class="hint">GLB, glTF, OBJ, STL, PLY or FBX. You can also drop a file onto the tunnel.</p>
+          <p id="model-info" class="info"></p>
+        </section>
+
+        <section>
+          <h2>Orientation</h2>
+          <label class="slider"><span>Turn (yaw)</span><input id="yaw" type="range" min="-180" max="180" step="1" value="0" /><output></output></label>
+          <label class="slider"><span>Tilt (pitch)</span><input id="pitch" type="range" min="-90" max="90" step="1" value="0" /><output></output></label>
+          <label class="slider"><span>Roll</span><input id="roll" type="range" min="-180" max="180" step="1" value="0" /><output></output></label>
+          <div class="row">
+            <label class="check"><input id="ground" type="checkbox" /> Rest on the floor</label>
+            <button id="reset-orientation" class="small">Reset</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Real-world conditions</h2>
+          <label class="slider"><span>Wind speed</span><input id="wind" type="range" min="10" max="400" step="5" value="100" /><output></output></label>
+          <div class="row">
+            <label class="field"><span>Longest side (m)</span><input id="size" type="number" min="0.01" max="500" step="0.01" /></label>
+            <label class="field"><span>Mass (kg)</span><input id="mass" type="number" min="0.001" max="1000000" step="0.1" /></label>
+          </div>
+          <p class="hint">These scale the forces in the report. The picture of the flow stays the same.</p>
+        </section>
+
+        <section>
+          <h2>What to show</h2>
+          <label class="check"><input id="v-lines" type="checkbox" /> Smoke lines</label>
+          <label class="check sub-option"><input id="v-line-color" type="checkbox" /> Colour lines by air speed</label>
+          <label class="check"><input id="v-pressure" type="checkbox" /> Pressure map on the surface</label>
+          <label class="check"><input id="v-smoke" type="checkbox" /> Volumetric smoke</label>
+          <label class="check"><input id="v-slice" type="checkbox" /> Slice plane</label>
+          <div id="slice-options" class="nested">
+            <div class="row">
+              <label class="field"><span>Cut</span>
+                <select id="slice-axis">
+                  <option value="z">Side view</option>
+                  <option value="y">Top view</option>
+                  <option value="x">Front view</option>
+                </select>
+              </label>
+              <label class="field"><span>Shows</span>
+                <select id="slice-field">
+                  <option value="speed">Air speed</option>
+                  <option value="pressure">Pressure</option>
+                  <option value="vorticity">Swirl (vorticity)</option>
+                </select>
+              </label>
+            </div>
+            <label class="slider"><span>Position</span><input id="slice-pos" type="range" min="0" max="1" step="0.01" value="0.5" /><output></output></label>
+          </div>
+          <label class="check"><input id="v-vortex" type="checkbox" /> Vortex cores</label>
+          <div id="vortex-options" class="nested">
+            <label class="slider"><span>Strength</span><input id="vortex-threshold" type="range" min="0.1" max="4" step="0.05" value="0.6" /><output></output></label>
+          </div>
+        </section>
+
+        <section>
+          <h2>Smoke rake</h2>
+          <label class="field"><span>Layout</span>
+            <select id="rake-layout">
+              <option value="vertical">Vertical line</option>
+              <option value="horizontal">Horizontal line</option>
+              <option value="grid">Grid</option>
+            </select>
+          </label>
+          <label class="slider"><span>Nozzles</span><input id="rake-count" type="range" min="1" max="20" step="1" value="13" /><output></output></label>
+          <label class="slider"><span>Height</span><input id="rake-height" type="range" min="0" max="1" step="0.01" value="0.5" /><output></output></label>
+          <label class="slider"><span>Sideways</span><input id="rake-side" type="range" min="0" max="1" step="0.01" value="0.5" /><output></output></label>
+          <label class="slider"><span>Spread</span><input id="rake-spread" type="range" min="0.05" max="1" step="0.01" value="0.6" /><output></output></label>
+        </section>
+
+        <section>
+          <h2>Simulation</h2>
+          <label class="field"><span>Quality</span><select id="quality"></select></label>
+          <div class="row">
+            <button id="pause">Pause</button>
+            <button id="restart">Restart flow</button>
+          </div>
+          <p id="sim-info" class="info"></p>
+        </section>
+
+        <section class="actions">
+          <button id="make-report" class="primary">Science &amp; Fun report</button>
+          <div class="row">
+            <button id="open-challenges">Challenges <span id="challenge-count" class="pill"></span></button>
+            <button id="open-gallery">Saved reports</button>
+          </div>
+          <a class="lab-link" href="/lab2d.html">2D lab: watch vortex shedding →</a>
+        </section>
+      </aside>
+
+      <main id="stage">
+        <canvas id="view"></canvas>
+        <div id="hud">
+          <div class="stat"><span class="k">Drag coefficient</span><span class="v" id="hud-cd">–</span></div>
+          <div class="stat"><span class="k">Lift coefficient</span><span class="v" id="hud-cl">–</span></div>
+          <div class="stat"><span class="k">Lift ÷ drag</span><span class="v" id="hud-ld">–</span></div>
+          <div class="meter">
+            <div class="meter-track"><div id="hud-progress" class="meter-fill"></div></div>
+            <span id="hud-status">Starting…</span>
+          </div>
+        </div>
+        <div id="legend"></div>
+        <div id="drop-overlay" hidden>Drop the model to put it in the tunnel</div>
+        <div id="toasts"></div>
+        <p id="view-hint">Drag to orbit · scroll to zoom · shift-drag to pan</p>
+      </main>
+    </div>
+
+    <dialog id="report-dialog" class="sheet">
+      <div class="sheet-bar">
+        <strong id="report-title">Report</strong>
+        <span class="spacer"></span>
+        <button id="report-save">Save to gallery</button>
+        <button id="report-download">Download HTML</button>
+        <button id="report-print">Print / PDF</button>
+        <button id="report-close" class="ghost" aria-label="Close">✕</button>
+      </div>
+      <iframe id="report-frame" title="Science and Fun report"></iframe>
+    </dialog>
+
+    <dialog id="challenge-dialog" class="card">
+      <div class="sheet-bar"><strong>Challenges</strong><span class="spacer"></span><button class="ghost" data-close aria-label="Close">✕</button></div>
+      <ul id="challenge-list" class="list"></ul>
+    </dialog>
+
+    <dialog id="gallery-dialog" class="card">
+      <div class="sheet-bar"><strong>Saved reports</strong><span class="spacer"></span><button class="ghost" data-close aria-label="Close">✕</button></div>
+      <p class="hint">Reports are stored in this browser only.</p>
+      <ul id="gallery-list" class="list"></ul>
+    </dialog>
+
+    <div id="fatal" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

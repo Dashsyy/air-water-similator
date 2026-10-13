@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>2D Flow Lab · Virtual Wind Tunnel</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌀</text></svg>" />
+    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      body { overflow: auto; }
+      #lab { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; }
+      #lab h1 { font-size: 21px; margin: 0; }
+      #lab-canvas { width: 100%; aspect-ratio: 8 / 3; display: block; border-radius: 10px; border: 1px solid var(--rule); background: #05070c; touch-action: none; cursor: crosshair; margin-top: 14px; }
+      .bar { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: end; margin-top: 14px; }
+      .bar .field { margin: 0; min-width: 130px; }
+      .bar .slider { margin: 0; grid-template-columns: auto 180px 44px; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 14px; }
+      .cards .stat { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; }
+      .explain { color: var(--ink-2); max-width: 760px; margin-top: 18px; }
+      .explain b { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div id="lab">
+      <a class="lab-link" href="/">← Back to the 3D tunnel</a>
+      <h1>2D flow lab: the vortex street</h1>
+      <p class="sub">Air flowing past a blunt shape peels off in alternating swirls. Change the shape and speed, or draw your own obstacle.</p>
+
+      <canvas id="lab-canvas"></canvas>
+
+      <div class="bar">
+        <label class="field"><span>Shape</span>
+          <select id="shape">
+            <option value="cylinder">Cylinder</option>
+            <option value="square">Square</option>
+            <option value="plate">Flat plate</option>
+            <option value="wedge">Wedge</option>
+            <option value="none">Empty (draw your own)</option>
+          </select>
+        </label>
+        <label class="field"><span>Show</span>
+          <select id="field">
+            <option value="vorticity">Swirl (vorticity)</option>
+            <option value="speed">Air speed</option>
+            <option value="pressure">Pressure</option>
+          </select>
+        </label>
+        <label class="slider"><span>Reynolds number</span><input id="reynolds" type="range" min="20" max="300" step="5" value="120" /><output></output></label>
+        <label class="field"><span>Mouse</span>
+          <select id="tool">
+            <option value="draw">Draws solid</option>
+            <option value="erase">Erases solid</option>
+          </select>
+        </label>
+        <button id="lab-reset">Restart flow</button>
+      </div>
+
+      <div class="cards">
+        <div class="stat"><span class="k">Drag coefficient</span><span class="v" id="lab-cd">–</span></div>
+        <div class="stat"><span class="k">Strouhal number, measured</span><span class="v" id="lab-st">–</span></div>
+        <div class="stat"><span class="k">Strouhal number, textbook</span><span class="v" id="lab-st-ref">–</span></div>
+        <div class="stat"><span class="k">Status</span><span class="v" id="lab-status" style="font-size:15px">Starting…</span></div>
+      </div>
+
+      <div class="explain">
+        <p><b>What to look for.</b> Below a Reynolds number of about 47 the wake behind a cylinder is steady. Above it the wake starts to wobble and sheds swirls from alternate sides. The <b>Strouhal number</b> is the shedding frequency made independent of size and speed: frequency × width ÷ speed. For a cylinder it stays close to 0.2 over a huge range of conditions, which is why wires hum and chimneys sway at predictable rates.</p>
+        <p class="hint">The tunnel walls here are close to the object, which nudges the measured values a little above the textbook ones.</p>
+      </div>
+    </div>
+    <div id="fatal" hidden></div>
+    <script type="module" src="/src/lab2d.ts"></script>
+  </body>
+</html>
