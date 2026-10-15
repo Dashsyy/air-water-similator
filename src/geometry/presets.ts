@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  BufferGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -10,8 +11,9 @@ import {
   MeshStandardMaterial,
   Shape,
   SphereGeometry,
+  Float32BufferAttribute,
   Vector2,
-  type BufferGeometry,
+  Vector3,
 } from 'three';
 import { modelFromObject, type Model } from './model.ts';
 
@@ -170,6 +172,183 @@ function buildTeardrop(): Model {
   return modelFromObject(g, 'Teardrop', { realSize: 1, mass: 8 });
 }
 
+/**
+ * Joins closed rings of equal length into a capped tube. The rings may run in either direction;
+ * the faces are flipped if needed so they point outward, which keeps the voxeliser's winding
+ * numbers from cancelling where parts overlap.
+ */
+function loft(rings: Vector3[][]): BufferGeometry {
+  const n = rings[0].length;
+  const pos: number[] = [];
+  for (const ring of rings) for (const p of ring) pos.push(p.x, p.y, p.z);
+  const index: number[] = [];
+  for (let r = 0; r + 1 < rings.length; r++) {
+    for (let i = 0; i < n; i++) {
+      const a = r * n + i, b = r * n + ((i + 1) % n), c = a + n, d = b + n;
+      index.push(a, b, d, a, d, c);
+    }
+  }
+  for (const [r, flip] of [[0, true], [rings.length - 1, false]] as const) {
+    const centre = new Vector3();
+    for (const p of rings[r]) centre.add(p);
+    centre.divideScalar(n);
+    const k = pos.length / 3;
+    pos.push(centre.x, centre.y, centre.z);
+    for (let i = 0; i < n; i++) {
+      const a = r * n + i, b = r * n + ((i + 1) % n);
+      index.push(...(flip ? [k, b, a] : [k, a, b]));
+    }
+  }
+  let volume = 0;
+  for (let t = 0; t < index.length; t += 3) {
+    const [a, b, c] = [index[t] * 3, index[t + 1] * 3, index[t + 2] * 3];
+    volume +=
+      pos[a] * (pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1]) -
+      pos[a + 1] * (pos[b] * pos[c + 2] - pos[b + 2] * pos[c]) +
+      pos[a + 2] * (pos[b] * pos[c + 1] - pos[b + 1] * pos[c]);
+  }
+  if (volume < 0) {
+    for (let t = 0; t < index.length; t += 3) [index[t + 1], index[t + 2]] = [index[t + 2], index[t + 1]];
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Symmetric NACA 00xx outline as (chord fraction, half thickness) pairs, leading edge first round the top. */
+function airfoilOutline(thickness: number, n = 16): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i <= n; i++) {
+    const x = 0.5 * (1 - Math.cos((Math.PI * i) / n));
+    out.push([x, nacaThickness(x, thickness)]);
+  }
+  for (let i = n - 1; i >= 1; i--) {
+    const x = 0.5 * (1 - Math.cos((Math.PI * i) / n));
+    out.push([x, -nacaThickness(x, thickness)]);
+  }
+  return out;
+}
+
+/**
+ * A lifting surface between two stations. Each station gives its leading edge, chord and the
+ * direction its thickness points (normal to the surface); the chord always runs along +x.
+ */
+function surface(
+  stations: Array<{ le: [number, number, number]; chord: number }>,
+  thickness: number,
+  up: [number, number, number] = [0, 1, 0],
+): BufferGeometry {
+  const outline = airfoilOutline(thickness);
+  const u = new Vector3(...up).normalize();
+  return loft(
+    stations.map(({ le, chord }) =>
+      outline.map(([x, t]) => new Vector3(le[0] + x * chord, le[1], le[2]).addScaledVector(u, t * chord)),
+    ),
+  );
+}
+
+/** A strut of airfoil section between two points, with its thickness lying in the horizontal plane. */
+function strut(from: Vector3, to: Vector3, chord: number, thickness: number): BufferGeometry {
+  const along = to.clone().sub(from).normalize();
+  const side = new Vector3(1, 0, 0).cross(along).normalize();
+  const outline = airfoilOutline(thickness, 8);
+  return loft(
+    [from, to].map((p) =>
+      outline.map(([x, t]) => p.clone().add(new Vector3((x - 0.4) * chord, 0, 0)).addScaledVector(side, t * chord)),
+    ),
+  );
+}
+
+/**
+ * NASA and Boeing's Transonic Truss-Braced Wing (SUGAR / X-66 family), sized like the
+ * 737-class concept: a high, very slender wing held up by struts from the lower fuselage.
+ * The nose points upstream (-x), the wing spans z.
+ */
+function buildTrussJet(): Model {
+  const g = new Group();
+  const body = 0xdfe3e8, wingGrey = 0xc3c9d0, dark = 0x5d6670, blue = 0x1f4f9e;
+  const length = 40, radius = 1.95;
+
+  // Fuselage: rounded nose, straight barrel, tapered tail cone.
+  const profile: Vector2[] = [];
+  for (let i = 0; i <= 64; i++) {
+    const x = (length * i) / 64;
+    let r = radius;
+    if (x < 6) r = radius * Math.sqrt(1 - ((6 - x) / 6) ** 2);
+    else if (x > 28) r = radius * (1 - 0.82 * ((x - 28) / 12) ** 1.4);
+    profile.push(new Vector2(Math.max(r, 0.001), x));
+  }
+  profile[0].x = 0.001;
+  const fuselage = new LatheGeometry(profile, 40);
+  fuselage.rotateZ(-Math.PI / 2);
+  g.add(part(fuselage, body));
+
+  // Main gear fairings on the lower fuselage.
+  for (const z of [-1.45, 1.45]) {
+    const pod = new SphereGeometry(1, 28, 16);
+    pod.scale(3.4, 0.75, 0.8);
+    g.add(part(pod, body, 18.5, -1.35, z));
+  }
+
+  // High wing: about 52 m span, aspect ratio near 19, light sweep, root above the fuselage.
+  const semi = 26, sweep = Math.tan((14 * Math.PI) / 180), dihedral = Math.tan((1.5 * Math.PI) / 180);
+  const rootLe = 14, rootChord = 4.4, tipChord = 1.4, wingY = radius - 0.05;
+  const wingAt = (z: number): { le: [number, number, number]; chord: number } => {
+    const f = Math.abs(z) / semi;
+    const chord = rootChord + (tipChord - rootChord) * f;
+    // Sweep the quarter-chord line so the taper does not skew it.
+    const quarter = rootLe + 0.25 * rootChord + Math.abs(z) * sweep;
+    return { le: [quarter - 0.25 * chord, wingY + Math.abs(z) * dihedral, z], chord };
+  };
+  const spanStations = [-26, -20, -14, -8, -2, 0, 2, 8, 14, 20, 26];
+  g.add(part(surface(spanStations.map(wingAt), 0.12), wingGrey));
+
+  // Struts from the gear fairings to 55% semi-span, with a short jury strut near their upper end.
+  for (const side of [-1, 1]) {
+    const zs = 0.55 * semi * side;
+    const top = wingAt(zs);
+    const upper = new Vector3(top.le[0] + 0.4 * top.chord, top.le[1] - 0.1, zs);
+    const lower = new Vector3(19.2, -1.3, 1.6 * side);
+    g.add(part(strut(lower, upper, 1.3, 0.16), wingGrey));
+    const juryBase = lower.clone().lerp(upper, 0.62);
+    const juryTop = wingAt(juryBase.z);
+    g.add(
+      part(
+        strut(juryBase, new Vector3(juryBase.x, juryTop.le[1] - 0.05, juryBase.z), 0.7, 0.2),
+        wingGrey,
+      ),
+    );
+
+    // Underwing turbofans on short pylons.
+    const ze = 6.2 * side;
+    const w = wingAt(ze);
+    const nacelleProfile = [
+      [0.95, 0], [1.12, 0.3], [1.15, 1.4], [1.05, 3.2], [0.8, 4.6], [0.45, 5.4], [0.001, 5.6],
+    ].map(([r, x]) => new Vector2(r, x));
+    nacelleProfile.unshift(new Vector2(0.001, 0));
+    const nacelle = new LatheGeometry(nacelleProfile, 28);
+    nacelle.rotateZ(-Math.PI / 2);
+    const ex = w.le[0] - 2.4, ey = w.le[1] - 1.75;
+    g.add(part(nacelle, dark, ex, ey, ze));
+    g.add(part(surface([{ le: [ex + 1.2, ey + 0.9, ze], chord: 3.6 }, { le: [w.le[0] - 0.2, w.le[1], ze], chord: 3.2 }], 0.1, [0, 0, 1]), wingGrey));
+  }
+
+  // T-tail: swept fin with the tailplane on top.
+  const finRoot = { le: [31.5, 0.3, 0] as [number, number, number], chord: 6.2 };
+  const finTip = { le: [37.2, 7.6, 0] as [number, number, number], chord: 3.4 };
+  g.add(part(surface([finRoot, finTip], 0.11, [0, 0, 1]), blue));
+  const tailSweep = Math.tan((28 * Math.PI) / 180);
+  const tailAt = (z: number): { le: [number, number, number]; chord: number } => {
+    const f = Math.abs(z) / 6.5;
+    return { le: [37.0 + Math.abs(z) * tailSweep, 7.55, z], chord: 3.2 - 1.6 * f };
+  };
+  g.add(part(surface([-6.5, -2, 0, 2, 6.5].map(tailAt), 0.1), blue));
+
+  return modelFromObject(g, 'Truss-braced wing jet', { realSize: 52, mass: 68000 });
+}
+
 function buildPlate(): Model {
   const g = new Group();
   g.add(part(new BoxGeometry(0.07, 1, 1), 0x9aa3ad));
@@ -181,6 +360,7 @@ export const PRESETS: Preset[] = [
   { id: 'cow', label: 'Cow', emoji: '🐄', build: buildCow },
   { id: 'wing', label: 'Wing', emoji: '✈️', pitch: 8, build: buildWing },
   { id: 'chair', label: 'Chair', emoji: '🪑', build: buildChair },
+  { id: 'truss-jet', label: 'Truss jet', emoji: '🛩️', pitch: 2, build: buildTrussJet },
   {
     id: 'sphere',
     label: 'Sphere',

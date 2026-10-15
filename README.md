@@ -18,7 +18,7 @@ set `CHROME_PATH` to override.
 
 ## What is in the app
 
-- **Objects:** eight built-in shapes, plus import of GLB, glTF, OBJ, STL, PLY, and FBX by file
+- **Objects:** nine built-in shapes (including NASA and Boeing's truss-braced wing jet), plus import of GLB, glTF, OBJ, STL, PLY, and FBX by file
   picker or drag and drop.
 - **Orientation:** yaw, pitch, and roll sliders. The flow adapts live. Grounded objects sit on a
   fixed floor.
